@@ -14,9 +14,10 @@ components and workloads retain their own licenses.
 - ClickBench at commit `e2fe0d3f4803cbf0a47068a9c7530b059a32d195`,
   Copyright ClickHouse contributors, Creative Commons
   Attribution-NonCommercial-ShareAlike 4.0 International. Source and license:
-  https://github.com/ClickHouse/ClickBench. The embedded SQL query file is
-  separately covered by that license; the benchmark dataset is downloaded from
-  ClickHouse's published dataset service and is not redistributed here.
+  https://github.com/ClickHouse/ClickBench. The embedded SQL schema and query
+  files are separately covered by that license; the benchmark dataset is
+  downloaded from ClickHouse's published dataset service and is not
+  redistributed here.
 
 ## Go dependencies
 
