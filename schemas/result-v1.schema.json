@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/LIHA-Research/lihacloud-bench/schemas/result-v1.schema.json",
+  "title": "lihacloud-bench result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "tool", "run", "host", "plan", "benchmarks", "resources", "warnings"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "commit", "build_date"],
+      "properties": {
+        "version": { "type": "string" },
+        "commit": { "type": "string" },
+        "build_date": { "type": "string" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "profile", "status", "started_at"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "profile": { "enum": ["standard", "quick"] },
+        "status": { "enum": ["running", "success", "partial", "failed", "interrupted"] },
+        "started_at": { "type": "string", "format": "date-time" },
+        "ended_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "os", "arch", "logical_cpus"],
+      "properties": {
+        "label": { "type": "string" },
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "logical_cpus": { "type": "integer", "minimum": 1 },
+        "cpu_model": { "type": "string" },
+        "memory_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": ["categories", "estimated_transfer_bytes", "estimated_requests"],
+      "properties": {
+        "categories": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "estimated_transfer_bytes": { "type": "integer", "minimum": 0 },
+        "estimated_requests": { "type": "integer", "minimum": 0 },
+        "estimated_duration_seconds": { "type": "integer", "minimum": 0 },
+        "external_data_sharing": { "type": "boolean" }
+      }
+    },
+    "benchmarks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/benchmark" }
+    },
+    "resources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resource" }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "unit"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "number" },
+        "unit": { "type": "string" },
+        "direction": { "enum": ["higher", "lower", "neutral"] }
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "status", "engine", "comparable", "metrics", "warnings"],
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "enum": ["success", "skipped", "blocked", "failed"] },
+        "engine": { "type": "string" },
+        "engine_version": { "type": "string" },
+        "workload_version": { "type": "string" },
+        "comparable": { "type": "boolean" },
+        "parameters": { "type": "object" },
+        "metrics": { "type": "array", "items": { "$ref": "#/$defs/metric" } },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "error_code": { "type": "string" },
+        "error": { "type": "string" },
+        "raw_artifact": { "type": "string" },
+        "raw_artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "owned", "cleanup_status"],
+      "properties": {
+        "kind": { "type": "string" },
+        "name": { "type": "string" },
+        "owned": { "type": "boolean" },
+        "cleanup_status": { "enum": ["pending", "deleted", "kept", "failed"] },
+        "error": { "type": "string" }
+      }
+    }
+  }
+}

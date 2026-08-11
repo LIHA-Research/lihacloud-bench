@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/LIHA-Research/lihacloud-bench/schemas/config-v1.schema.json",
+  "title": "lihacloud-bench configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": { "const": 1 },
+    "profile": { "enum": ["standard", "quick"], "default": "standard" },
+    "host_label": { "type": "string", "maxLength": 128, "default": "" },
+    "output": { "type": "string", "minLength": 1, "default": "results" },
+    "keep_resources": { "type": "boolean", "default": false },
+    "disk": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "path": { "type": "string", "default": "" } }
+    },
+    "s3": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "endpoint": { "type": "string", "default": "" },
+        "region": { "type": "string", "minLength": 1, "default": "us-east-1" },
+        "path_style": { "type": "boolean", "default": false },
+        "bucket_prefix": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,40}[a-z0-9]$", "default": "lihacloud-bench" }
+      }
+    },
+    "postgres": { "$ref": "#/$defs/database" },
+    "clickhouse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "url_env": { "type": "string", "minLength": 1 },
+        "clickbench_cache_mode": { "enum": ["lukewarm", "true-cold"], "default": "lukewarm" }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "peer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "target": { "type": "string", "default": "" },
+            "certificate_fingerprint": { "type": "string", "default": "" },
+            "token_env": { "type": "string", "default": "LIHACLOUD_BENCH_PEER_TOKEN" }
+          }
+        },
+        "iperf": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "target": { "type": "string", "default": "" },
+            "udp_bits_per_second": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        },
+        "internet": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "accept_mlab_data_policy": { "type": "boolean", "default": false }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "url_env": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
