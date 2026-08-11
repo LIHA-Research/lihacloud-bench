@@ -1,0 +1,38 @@
+version: 1
+profile: standard
+host_label: ""
+output: results
+keep_resources: false
+
+disk:
+  path: ""
+
+s3:
+  enabled: false
+  endpoint: ""
+  region: us-east-1
+  path_style: false
+  bucket_prefix: lihacloud-bench
+
+postgres:
+  enabled: false
+  url_env: LIHACLOUD_BENCH_POSTGRES_URL
+
+clickhouse:
+  enabled: false
+  url_env: LIHACLOUD_BENCH_CLICKHOUSE_URL
+  clickbench_cache_mode: lukewarm
+
+network:
+  peer:
+    enabled: false
+    target: ""
+    certificate_fingerprint: ""
+    token_env: LIHACLOUD_BENCH_PEER_TOKEN
+  iperf:
+    enabled: false
+    target: ""
+    udp_bits_per_second: 0
+  internet:
+    enabled: false
+    accept_mlab_data_policy: false

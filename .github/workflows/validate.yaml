@@ -1,0 +1,278 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - develop
+      - staging
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Test
+        run: go test ./...
+
+      - name: Race test
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build native CLI
+        run: go build ./cmd/lihacloud-bench
+
+  vulnerability:
+    name: Vulnerability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Scan reachable Go code
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          govulncheck ./...
+
+  cross-build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Cross-build CLI
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build ./cmd/lihacloud-bench
+
+  clickcannon-build:
+    name: Build ClickCannon (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Fetch pinned ClickCannon source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/ClickHouse/ClickCannon.git "${RUNNER_TEMP}/clickcannon"
+          git -C "${RUNNER_TEMP}/clickcannon" checkout --detach 14dd50226fe5bed12f2d2720e1837a6b31951d13
+          git -C "${RUNNER_TEMP}/clickcannon" apply "${GITHUB_WORKSPACE}/tools/clickcannon/patches/0001-portable-process-cpu-time.patch"
+
+      - name: Cross-build patched helper
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o "${RUNNER_TEMP}/clickcannon-helper" .
+        working-directory: ${{ runner.temp }}/clickcannon
+
+  network-integration:
+    name: Network integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Build CLI
+        run: go build -trimpath -o "${RUNNER_TEMP}/lihacloud-bench" ./cmd/lihacloud-bench
+
+      - name: Run iperf3 loopback profile
+        shell: bash
+        env:
+          IPERF_IMAGE: networkstatic/iperf3@sha256:25bce1d02f5e1c0acb4a4376815b87059ad730cd9a1c18ce8a9cb9babd7ad05f
+          TEST_NETWORK: lihacloud-bench-${{ github.run_id }}-${{ github.run_attempt }}
+          TEST_SERVER: lihacloud-bench-iperf-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          docker network create "${TEST_NETWORK}"
+          docker run -d --name "${TEST_SERVER}" --network "${TEST_NETWORK}" "${IPERF_IMAGE}" -s
+          sleep 1
+          docker run --rm --network "${TEST_NETWORK}" \
+            -v "${RUNNER_TEMP}:/it" \
+            --entrypoint /it/lihacloud-bench \
+            -e "LIHACLOUD_BENCH_IPERF_TARGET=${TEST_SERVER}" \
+            "${IPERF_IMAGE}" network iperf --profile quick --output /it/results --yes
+
+      - name: Clean up iperf3 loopback
+        if: always()
+        shell: bash
+        env:
+          TEST_NETWORK: lihacloud-bench-${{ github.run_id }}-${{ github.run_attempt }}
+          TEST_SERVER: lihacloud-bench-iperf-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          docker rm -f "${TEST_SERVER}" 2>/dev/null || true
+          docker network rm "${TEST_NETWORK}" 2>/dev/null || true
+
+  service-integration:
+    name: Service integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PG14_CONTAINER: lihacloud-bench-pg14-${{ github.run_id }}-${{ github.run_attempt }}
+      PG18_CONTAINER: lihacloud-bench-pg18-${{ github.run_id }}-${{ github.run_attempt }}
+      CH_LTS_CONTAINER: lihacloud-bench-ch-lts-${{ github.run_id }}-${{ github.run_attempt }}
+      CH_LATEST_CONTAINER: lihacloud-bench-ch-latest-${{ github.run_id }}-${{ github.run_attempt }}
+      MINIO_CONTAINER: lihacloud-bench-minio-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Install PostgreSQL client tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Build fixture tests and ClickCannon
+        shell: bash
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go test -c ./internal/bench/postgres -o "${RUNNER_TEMP}/postgres.test"
+          CGO_ENABLED=0 go test -c ./internal/bench/clickhouse -o "${RUNNER_TEMP}/clickhouse.test"
+          CGO_ENABLED=0 go test -c ./internal/bench/s3bench -o "${RUNNER_TEMP}/s3bench.test"
+          git clone --filter=blob:none https://github.com/ClickHouse/ClickCannon.git "${RUNNER_TEMP}/clickcannon"
+          git -C "${RUNNER_TEMP}/clickcannon" checkout --detach 14dd50226fe5bed12f2d2720e1837a6b31951d13
+          git -C "${RUNNER_TEMP}/clickcannon" apply "${GITHUB_WORKSPACE}/tools/clickcannon/patches/0001-portable-process-cpu-time.patch"
+          (cd "${RUNNER_TEMP}/clickcannon" && CGO_ENABLED=0 go build -trimpath -o "${RUNNER_TEMP}/clickcannon-helper" .)
+
+      - name: Start fixture services
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name "${PG14_CONTAINER}" -p 15414:5432 -e POSTGRES_PASSWORD=bench postgres:14
+          docker run -d --name "${PG18_CONTAINER}" -p 15418:5432 -e POSTGRES_PASSWORD=bench postgres:18
+          docker run -d --name "${CH_LTS_CONTAINER}" -p 19001:9000 -e CLICKHOUSE_PASSWORD=bench clickhouse/clickhouse-server:25.8
+          docker run -d --name "${CH_LATEST_CONTAINER}" -p 19002:9000 -e CLICKHOUSE_PASSWORD=bench clickhouse/clickhouse-server:latest
+          docker run -d --name "${MINIO_CONTAINER}" -p 19000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+          for container in "${PG14_CONTAINER}" "${PG18_CONTAINER}"; do
+            for attempt in {1..60}; do
+              if docker exec "${container}" pg_isready -U postgres; then break; fi
+              sleep 1
+              if [[ "${attempt}" == 60 ]]; then exit 1; fi
+            done
+          done
+          for container in "${CH_LTS_CONTAINER}" "${CH_LATEST_CONTAINER}"; do
+            for attempt in {1..60}; do
+              if docker exec "${container}" clickhouse-client --password bench --query 'SELECT 1'; then break; fi
+              sleep 1
+              if [[ "${attempt}" == 60 ]]; then exit 1; fi
+            done
+          done
+          sleep 3
+
+      - name: Test PostgreSQL 14 and 18
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 15414 15418; do
+            LIHACLOUD_BENCH_TEST_POSTGRES_URL="postgresql://postgres:bench@127.0.0.1:${port}/postgres" \
+              "${RUNNER_TEMP}/postgres.test" -test.run TestIntegration -test.v
+          done
+
+      - name: Test ClickHouse LTS and latest
+        shell: bash
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
+        run: |
+          set -euo pipefail
+          LIHACLOUD_BENCH_TEST_CLICKHOUSE_URL="clickhouse://default:bench@127.0.0.1:19001/default" \
+            "${RUNNER_TEMP}/clickhouse.test" -test.run TestIntegration -test.v
+          LIHACLOUD_BENCH_TEST_CLICKHOUSE_URL="clickhouse://default:bench@127.0.0.1:19002/default" \
+            LIHACLOUD_BENCH_TEST_CLICKCANNON_PATH="${RUNNER_TEMP}/clickcannon-helper" \
+            "${RUNNER_TEMP}/clickhouse.test" -test.run TestIntegration -test.v
+
+      - name: Test MinIO object storage
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_EC2_METADATA_DISABLED: "true"
+          LIHACLOUD_BENCH_TEST_S3_ENDPOINT: http://127.0.0.1:19000
+        run: |
+          "${RUNNER_TEMP}/s3bench.test" -test.run TestIntegration -test.v
+
+      - name: Clean up fixture services
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f \
+            "${PG14_CONTAINER}" "${PG18_CONTAINER}" \
+            "${CH_LTS_CONTAINER}" "${CH_LATEST_CONTAINER}" \
+            "${MINIO_CONTAINER}" 2>/dev/null || true

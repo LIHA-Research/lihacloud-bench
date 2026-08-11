@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build release archives
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Build archives
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          git clone --filter=blob:none https://github.com/ClickHouse/ClickCannon.git "${RUNNER_TEMP}/clickcannon"
+          git -C "${RUNNER_TEMP}/clickcannon" checkout --detach 14dd50226fe5bed12f2d2720e1837a6b31951d13
+          git -C "${RUNNER_TEMP}/clickcannon" apply "${GITHUB_WORKSPACE}/tools/clickcannon/patches/0001-portable-process-cpu-time.patch"
+          build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            goos=${target%/*}
+            goarch=${target#*/}
+            archive="lihacloud-bench_${VERSION}_${goos}_${goarch}"
+            mkdir -p "dist/${archive}"
+            binary="lihacloud-bench"
+            if [[ "${goos}" == "windows" ]]; then binary="lihacloud-bench.exe"; fi
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build \
+              -trimpath \
+              -ldflags "-s -w -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Version=${VERSION} -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Commit=${COMMIT} -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Date=${build_date}" \
+              -o "dist/${archive}/${binary}" ./cmd/lihacloud-bench
+            helper="clickcannon_${VERSION}_${goos}_${goarch}"
+            if [[ "${goos}" == "windows" ]]; then helper="${helper}.exe"; fi
+            (cd "${RUNNER_TEMP}/clickcannon" && CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -trimpath -ldflags "-s -w" -o "${GITHUB_WORKSPACE}/dist/${helper}" .)
+            cp LICENSE THIRD_PARTY_NOTICES.md README.md "dist/${archive}/"
+            if [[ "${goos}" == "windows" ]]; then
+              (cd dist && zip -qr "${archive}.zip" "${archive}")
+            else
+              tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
+            fi
+            rm -rf "dist/${archive}"
+          done
+          cp schemas/config-v1.schema.json schemas/result-v1.schema.json config.example.yaml LICENSE THIRD_PARTY_NOTICES.md dist/
+          (cd dist && sha256sum -- lihacloud-bench_*.tar.gz lihacloud-bench_*.zip clickcannon_* config-v1.schema.json result-v1.schema.json config.example.yaml LICENSE THIRD_PARTY_NOTICES.md > checksums.txt)
+
+      - name: Attest release archives
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+        with:
+          subject-path: dist/*
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          generate_release_notes: true
+          files: dist/*
+
+  install-smoke:
+    name: Install smoke (${{ matrix.os }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+    steps:
+      - name: Download and run release archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          case "${RUNNER_OS}" in
+            Linux) target_os=linux ;;
+            macOS) target_os=darwin ;;
+            Windows) target_os=windows ;;
+          esac
+          archive="lihacloud-bench_${GITHUB_REF_NAME}_${target_os}_amd64"
+          if [[ "${target_os}" == "windows" ]]; then
+            gh release download "${GITHUB_REF_NAME}" --pattern "${archive}.zip"
+            unzip -q "${archive}.zip"
+            binary="${archive}/lihacloud-bench.exe"
+          else
+            gh release download "${GITHUB_REF_NAME}" --pattern "${archive}.tar.gz"
+            tar -xzf "${archive}.tar.gz"
+            binary="${archive}/lihacloud-bench"
+          fi
+          "${binary}" --version
+          "${binary}" plan --profile quick --only cpu
