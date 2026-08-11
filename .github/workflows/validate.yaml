@@ -169,7 +169,7 @@ jobs:
           TEST_NETWORK: lihacloud-bench-${{ github.run_id }}-${{ github.run_attempt }}
           TEST_SERVER: lihacloud-bench-iperf-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          docker rm -f "${TEST_SERVER}" 2>/dev/null || true
+          docker rm -fv "${TEST_SERVER}" 2>/dev/null || true
           docker network rm "${TEST_NETWORK}" 2>/dev/null || true
 
   service-integration:
@@ -272,7 +272,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          docker rm -f \
+          docker rm -fv \
             "${PG14_CONTAINER}" "${PG18_CONTAINER}" \
             "${CH_LTS_CONTAINER}" "${CH_LATEST_CONTAINER}" \
             "${MINIO_CONTAINER}" 2>/dev/null || true
