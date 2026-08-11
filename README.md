@@ -26,6 +26,14 @@ docker run --rm -v "$PWD:/src" -w /src golang:1.26.5-bookworm \
   go build ./cmd/lihacloud-bench
 ```
 
+## Contracts
+
+The public CLI, workload, configuration, result, and resource-safety contracts
+are documented in [docs/benchmark-contract.md](docs/benchmark-contract.md).
+Versioned JSON Schemas are available under [schemas](schemas/), and
+[config.example.yaml](config.example.yaml) contains a secret-free starting
+configuration.
+
 ## Development workflow
 
 Changes are reviewed through `develop`, promoted to `staging`, and then released
