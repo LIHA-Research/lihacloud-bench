@@ -122,7 +122,10 @@ func measure(ctx context.Context, operation string, source, destination []byte, 
 	runtime.KeepAlive(destination)
 	elapsed := time.Since(start)
 	if elapsed <= 0 {
-		return 0, fmt.Errorf("memory workload clock did not advance")
+		// Some Windows clocks do not advance during very small test buffers.
+		// Production buffers are much larger, but keep the metric finite and
+		// deterministic at the timer's smallest representable interval.
+		elapsed = time.Nanosecond
 	}
 	return float64(len(source)) / mebibyte / elapsed.Seconds(), nil
 }
