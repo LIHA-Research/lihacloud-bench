@@ -124,13 +124,14 @@ jobs:
             gh release download "${GITHUB_REF_NAME}" --pattern "${helper}.exe"
             unzip -q "${archive}.zip"
             binary="${archive}/lihacloud-bench.exe"
-            helper="${helper}.exe"
+            helper="./${helper}.exe"
           else
             gh release download "${GITHUB_REF_NAME}" --pattern "${archive}.tar.gz"
             gh release download "${GITHUB_REF_NAME}" --pattern "${helper}"
             tar -xzf "${archive}.tar.gz"
             binary="${archive}/lihacloud-bench"
             chmod +x "${helper}"
+            helper="./${helper}"
           fi
           "${binary}" --version
           "${binary}" plan --profile quick --only cpu
