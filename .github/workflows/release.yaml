@@ -74,39 +74,57 @@ jobs:
           files: dist/*
 
   install-smoke:
-    name: Install smoke (${{ matrix.os }})
+    name: Install smoke (${{ matrix.target_os }}/${{ matrix.target_arch }})
     needs: build
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-24.04
-          - macos-15
-          - windows-2025
+        include:
+          - runner: ubuntu-24.04
+            target_os: linux
+            target_arch: amd64
+          - runner: ubuntu-24.04-arm
+            target_os: linux
+            target_arch: arm64
+          - runner: macos-15-intel
+            target_os: darwin
+            target_arch: amd64
+          - runner: macos-15
+            target_os: darwin
+            target_arch: arm64
+          - runner: windows-2025
+            target_os: windows
+            target_arch: amd64
+          - runner: windows-11-arm
+            target_os: windows
+            target_arch: arm64
     steps:
-      - name: Download and run release archive
+      - name: Download and run release artifacts
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          TARGET_OS: ${{ matrix.target_os }}
+          TARGET_ARCH: ${{ matrix.target_arch }}
         run: |
           set -euo pipefail
-          case "${RUNNER_OS}" in
-            Linux) target_os=linux ;;
-            macOS) target_os=darwin ;;
-            Windows) target_os=windows ;;
-          esac
-          archive="lihacloud-bench_${GITHUB_REF_NAME}_${target_os}_amd64"
-          if [[ "${target_os}" == "windows" ]]; then
+          archive="lihacloud-bench_${GITHUB_REF_NAME}_${TARGET_OS}_${TARGET_ARCH}"
+          helper="clickcannon_${GITHUB_REF_NAME}_${TARGET_OS}_${TARGET_ARCH}"
+          if [[ "${TARGET_OS}" == "windows" ]]; then
             gh release download "${GITHUB_REF_NAME}" --pattern "${archive}.zip"
+            gh release download "${GITHUB_REF_NAME}" --pattern "${helper}.exe"
             unzip -q "${archive}.zip"
             binary="${archive}/lihacloud-bench.exe"
+            helper="${helper}.exe"
           else
             gh release download "${GITHUB_REF_NAME}" --pattern "${archive}.tar.gz"
+            gh release download "${GITHUB_REF_NAME}" --pattern "${helper}"
             tar -xzf "${archive}.tar.gz"
             binary="${archive}/lihacloud-bench"
+            chmod +x "${helper}"
           fi
           "${binary}" --version
           "${binary}" plan --profile quick --only cpu
+          "${helper}" -h
