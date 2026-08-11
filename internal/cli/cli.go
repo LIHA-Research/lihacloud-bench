@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/LIHA-Research/lihacloud-bench/internal/bench/disk"
+	"github.com/LIHA-Research/lihacloud-bench/internal/bench/network/iperf"
+	"github.com/LIHA-Research/lihacloud-bench/internal/bench/network/peer"
 	"github.com/LIHA-Research/lihacloud-bench/internal/buildinfo"
 	cacheio "github.com/LIHA-Research/lihacloud-bench/internal/cache"
 	"github.com/LIHA-Research/lihacloud-bench/internal/config"
@@ -113,7 +115,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return runBenchmarks(args[3:], []string{"network-peer"}, stdin, stdout, stderr)
 		}
 		if len(args) > 2 && args[1] == "peer" && args[2] == "serve" {
-			return unavailable("peer server", stderr)
+			return runPeerServe(args[3:], stdout, stderr)
 		}
 	case "cleanup":
 		return runCleanup(args[1:], stdout, stderr)
@@ -166,7 +168,7 @@ func common(args []string, stderr io.Writer) (commonOptions, config.Config, erro
 	if options.keepSet {
 		cfg.KeepResources = options.keep
 	}
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.ValidateResolved(); err != nil {
 		return options, config.Config{}, err
 	}
 	return options, cfg, nil
@@ -216,7 +218,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	for _, item := range []struct {
 		name, binary string
 		enabled      bool
-	}{{"pgbench", "pgbench", cfg.Postgres.Enabled}, {"iperf", iperfBinary(), cfg.Network.IPerf.Enabled}} {
+	}{{"pgbench", "pgbench", cfg.Postgres.Enabled}} {
 		path, lookupErr := exec.LookPath(item.binary)
 		status, detail := "OK", path
 		if lookupErr != nil {
@@ -227,6 +229,15 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		}
 		_, _ = fmt.Fprintf(stdout, "%-16s %-10s %s\n", item.name, status, detail)
 	}
+	iperfDetection := iperf.Detect(context.Background())
+	iperfStatus, iperfDetail := "OK", strings.TrimSpace(iperfDetection.Path+" "+iperfDetection.Version)
+	if iperfDetection.Path == "" {
+		iperfStatus, iperfDetail = "MISSING", iperfDetection.Engine+" is not installed"
+		if cfg.Network.IPerf.Enabled {
+			failed = true
+		}
+	}
+	_, _ = fmt.Fprintf(stdout, "%-16s %-10s %s\n", "iperf", iperfStatus, iperfDetail)
 	for _, item := range []struct {
 		name, env string
 		enabled   bool
@@ -412,16 +423,43 @@ func runCache(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func iperfBinary() string {
-	if runtime.GOOS == "windows" {
-		return "iperf"
+func runPeerServe(args []string, stdout, stderr io.Writer) int {
+	set := flag.NewFlagSet("network peer serve", flag.ContinueOnError)
+	set.SetOutput(stderr)
+	configPath := set.String("config", "", "configuration YAML")
+	listen := set.String("listen", ":8443", "listen address")
+	tokenEnvironment := set.String("token-env", "", "peer token environment variable")
+	if err := set.Parse(args); err != nil {
+		return 2
 	}
-	return "iperf3"
-}
-
-func unavailable(name string, stderr io.Writer) int {
-	_, _ = fmt.Fprintf(stderr, "%s is not available in this build\n", name)
-	return 1
+	if set.NArg() != 0 {
+		_, _ = fmt.Fprintln(stderr, "network peer serve accepts no positional arguments")
+		return 2
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "peer server: %v\n", err)
+		return 2
+	}
+	if *tokenEnvironment == "" {
+		*tokenEnvironment = cfg.Network.Peer.TokenEnv
+	}
+	token, present := os.LookupEnv(*tokenEnvironment)
+	if !present || token == "" {
+		_, _ = fmt.Fprintf(stderr, "peer server: %s is not set\n", *tokenEnvironment)
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	server := &peer.Server{Listen: *listen, Token: token}
+	if err := server.Serve(ctx, stdout); err != nil {
+		_, _ = fmt.Fprintf(stderr, "peer server: %v\n", err)
+		return 1
+	}
+	if ctx.Err() != nil {
+		return 130
+	}
+	return 0
 }
 
 func JSONPlan(plan model.Plan) ([]byte, error) { return json.MarshalIndent(plan, "", "  ") }

@@ -22,5 +22,7 @@ components and workloads retain their own licenses.
 
 - AWS SDK for Go v2, Apache License 2.0.
 - ClickHouse Go client and ch-go, Apache License 2.0.
+- Measurement Lab ndt7-client-go v0.10.1 and its M-Lab protocol libraries,
+  Apache License 2.0. Source: https://github.com/m-lab/ndt7-client-go/tree/v0.10.1.
 - Other Go module versions are recorded exactly in `go.mod` and `go.sum`; their
   copyright and license notices remain in their respective source modules.

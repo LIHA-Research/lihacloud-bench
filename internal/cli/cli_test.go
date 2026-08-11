@@ -49,3 +49,11 @@ func TestPlanQuick(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestPeerServeRequiresToken(t *testing.T) {
+	t.Setenv("LIHACLOUD_BENCH_PEER_TOKEN", "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"network", "peer", "serve", "--listen", "127.0.0.1:0"}, bytes.NewReader(nil), &stdout, &stderr); code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}

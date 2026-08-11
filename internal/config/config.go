@@ -39,6 +39,9 @@ func ApplyEnvironment(cfg *Config, lookup func(string) (string, bool)) error {
 		{"LIHACLOUD_BENCH_DISK_PATH", &cfg.Disk.Path},
 		{"LIHACLOUD_BENCH_S3_ENDPOINT", &cfg.S3.Endpoint},
 		{"LIHACLOUD_BENCH_S3_REGION", &cfg.S3.Region},
+		{"LIHACLOUD_BENCH_PEER_TARGET", &cfg.Network.Peer.Target},
+		{"LIHACLOUD_BENCH_PEER_FINGERPRINT", &cfg.Network.Peer.CertificateFingerprint},
+		{"LIHACLOUD_BENCH_IPERF_TARGET", &cfg.Network.IPerf.Target},
 	}
 	for _, item := range stringsMap {
 		if value, ok := lookup(item.name); ok {
@@ -52,6 +55,7 @@ func ApplyEnvironment(cfg *Config, lookup func(string) (string, bool)) error {
 		{"LIHACLOUD_BENCH_KEEP_RESOURCES", &cfg.KeepResources},
 		{"LIHACLOUD_BENCH_S3_ENABLED", &cfg.S3.Enabled},
 		{"LIHACLOUD_BENCH_S3_PATH_STYLE", &cfg.S3.PathStyle},
+		{"LIHACLOUD_BENCH_ACCEPT_MLAB_DATA_POLICY", &cfg.Network.Internet.AcceptMLabDataPolicy},
 	}
 	for _, item := range booleans {
 		if value, ok := lookup(item.name); ok {
@@ -62,7 +66,7 @@ func ApplyEnvironment(cfg *Config, lookup func(string) (string, bool)) error {
 			*item.target = parsed
 		}
 	}
-	return cfg.Validate()
+	return cfg.ValidateResolved()
 }
 
 type DiskConfig struct {
@@ -186,6 +190,21 @@ func (c Config) Validate() error {
 	}
 	if c.ClickHouse.ClickBenchCacheMode != "lukewarm" && c.ClickHouse.ClickBenchCacheMode != "true-cold" {
 		return errors.New("clickhouse clickbench_cache_mode must be lukewarm or true-cold")
+	}
+	return nil
+}
+
+// ValidateResolved checks values whose final form may be supplied by
+// environment variables after the YAML document has been decoded.
+func (c Config) ValidateResolved() error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if c.Network.Peer.Enabled && (strings.TrimSpace(c.Network.Peer.Target) == "" || strings.TrimSpace(c.Network.Peer.CertificateFingerprint) == "" || strings.TrimSpace(c.Network.Peer.TokenEnv) == "") {
+		return errors.New("network.peer requires target, certificate_fingerprint, and token_env")
+	}
+	if c.Network.IPerf.Enabled && strings.TrimSpace(c.Network.IPerf.Target) == "" {
+		return errors.New("network.iperf requires target")
 	}
 	if c.Network.Internet.Enabled && !c.Network.Internet.AcceptMLabDataPolicy {
 		return errors.New("network.internet requires accept_mlab_data_policy: true")

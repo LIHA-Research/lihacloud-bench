@@ -42,6 +42,8 @@ lihacloud-bench object s3 --profile quick --yes
 lihacloud-bench postgres pgbench --profile quick --yes
 lihacloud-bench clickhouse clickbench --profile quick --yes
 lihacloud-bench clickhouse clickcannon --profile quick --yes
+lihacloud-bench network iperf --profile quick --yes
+lihacloud-bench network internet --profile quick --yes
 ```
 
 S3-compatible storage uses the AWS SDK credential chain. Database URLs and the
@@ -58,6 +60,22 @@ ClickBench adapter pins its SQL workload to commit
 labels managed-service cache semantics explicitly. ClickCannon v0.4.0 is
 released as a checksum-verified helper for every supported target; its native
 connection requires a `clickhouse://`, `clickhouses://`, or `tcp://` URL.
+
+For an authenticated peer test, set the same one-time
+`LIHACLOUD_BENCH_PEER_TOKEN` on both hosts, start `network peer serve` on one
+host, and copy its printed address and SHA-256 certificate fingerprint into the
+client configuration (or `LIHACLOUD_BENCH_PEER_TARGET` and
+`LIHACLOUD_BENCH_PEER_FINGERPRINT`). The client measures TLS RTT and 1/8-stream
+upload and download throughput. Set `LIHACLOUD_BENCH_IPERF_TARGET` for iperf;
+Unix uses iperf3 and Windows uses the officially supported iperf2 engine.
+The engine distinction follows the
+[iperf project Windows guidance](https://software.es.net/iperf/faq.html#windows).
+
+The public internet test sends measurement data to M-Lab, which collects and
+publishes the test IP address and measurement results under its
+[privacy policy](https://www.measurementlab.net/privacy-v3/). It runs only when
+`accept_mlab_data_policy: true` or
+`LIHACLOUD_BENCH_ACCEPT_MLAB_DATA_POLICY=true` is set explicitly.
 
 ## Build
 
