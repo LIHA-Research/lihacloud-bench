@@ -15,14 +15,50 @@ go install github.com/LIHA-Research/lihacloud-bench/cmd/lihacloud-bench@latest
 
 Prebuilt archives and checksums are published on the GitHub Releases page.
 
+## Quick start
+
+Create a secret-free configuration, inspect the resolved tools and workload,
+then run the smoke profile:
+
+```sh
+lihacloud-bench init
+lihacloud-bench doctor
+lihacloud-bench plan --profile quick
+lihacloud-bench run --profile quick --yes
+```
+
+Every run prints a terminal summary and atomically writes a versioned JSON
+result. Non-interactive runs require `--yes`. Standard runs are intentionally
+long and resource intensive; `plan` reports their estimated duration, transfer,
+requests, and generated resources before execution.
+
+Individual host and storage suites use the same planning and cleanup pipeline:
+
+```sh
+lihacloud-bench cpu --profile quick --yes
+lihacloud-bench memory --profile quick --yes
+lihacloud-bench disk --profile quick --yes
+lihacloud-bench object s3 --profile quick --yes
+```
+
+S3-compatible storage uses the AWS SDK credential chain. Database URLs and the
+peer token are read only from `LIHACLOUD_BENCH_POSTGRES_URL`,
+`LIHACLOUD_BENCH_CLICKHOUSE_URL`, and `LIHACLOUD_BENCH_PEER_TOKEN`; credentials
+are never stored in YAML or result JSON.
+
+Disk tests prefer an installed `fio`. When it is unavailable, the CLI uses a
+buffered built-in workload and marks the result `comparable=false`.
+
 ## Build
 
 The repository pins Go 1.26.5. A local Go installation is optional when Docker
 is available:
 
 ```sh
-docker run --rm -v "$PWD:/src" -w /src golang:1.26.5-bookworm go test ./...
-docker run --rm -v "$PWD:/src" -w /src golang:1.26.5-bookworm \
+docker run --rm -e PATH=/usr/local/go/bin:$PATH -v "$PWD:/src" -w /src \
+  golang:1.26.5-bookworm go test ./...
+docker run --rm -e PATH=/usr/local/go/bin:$PATH -v "$PWD:/src" -w /src \
+  golang:1.26.5-bookworm \
   go build ./cmd/lihacloud-bench
 ```
 
