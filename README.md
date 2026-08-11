@@ -39,6 +39,9 @@ lihacloud-bench cpu --profile quick --yes
 lihacloud-bench memory --profile quick --yes
 lihacloud-bench disk --profile quick --yes
 lihacloud-bench object s3 --profile quick --yes
+lihacloud-bench postgres pgbench --profile quick --yes
+lihacloud-bench clickhouse clickbench --profile quick --yes
+lihacloud-bench clickhouse clickcannon --profile quick --yes
 ```
 
 S3-compatible storage uses the AWS SDK credential chain. Database URLs and the
@@ -48,6 +51,13 @@ are never stored in YAML or result JSON.
 
 Disk tests prefer an installed `fio`. When it is unavailable, the CLI uses a
 buffered built-in workload and marks the result `comparable=false`.
+
+PostgreSQL requires `pgbench` and `psql` from the same client installation. The
+ClickBench adapter pins its SQL workload to commit
+`e2fe0d3f4803cbf0a47068a9c7530b059a32d195`, verifies cached dataset bytes, and
+labels managed-service cache semantics explicitly. ClickCannon v0.4.0 is
+released as a checksum-verified helper for every supported target; its native
+connection requires a `clickhouse://`, `clickhouses://`, or `tcp://` URL.
 
 ## Build
 

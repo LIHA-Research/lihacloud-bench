@@ -184,6 +184,9 @@ func (c Config) Validate() error {
 	if c.ClickHouse.Enabled && c.ClickHouse.URLEnv == "" {
 		return errors.New("clickhouse url_env must not be empty when enabled")
 	}
+	if c.ClickHouse.ClickBenchCacheMode != "lukewarm" && c.ClickHouse.ClickBenchCacheMode != "true-cold" {
+		return errors.New("clickhouse clickbench_cache_mode must be lukewarm or true-cold")
+	}
 	if c.Network.Internet.Enabled && !c.Network.Internet.AcceptMLabDataPolicy {
 		return errors.New("network.internet requires accept_mlab_data_policy: true")
 	}
