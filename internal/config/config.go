@@ -26,8 +26,10 @@ type Config struct {
 	Network       NetworkConfig    `yaml:"network"`
 }
 
-// ApplyEnvironment overlays non-secret environment configuration. Credential
-// values remain in their native providers and are never copied into Config.
+// ApplyEnvironment overlays non-secret environment configuration without
+// validating the intermediate value. Call ValidateResolved after higher
+// precedence CLI flags have been applied. Credential values remain in their
+// native providers and are never copied into Config.
 func ApplyEnvironment(cfg *Config, lookup func(string) (string, bool)) error {
 	stringsMap := []struct {
 		name   string
@@ -66,7 +68,7 @@ func ApplyEnvironment(cfg *Config, lookup func(string) (string, bool)) error {
 			*item.target = parsed
 		}
 	}
-	return cfg.ValidateResolved()
+	return nil
 }
 
 type DiskConfig struct {
@@ -160,8 +162,8 @@ func Load(path string) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("decode trailing config: %w", err)
 	}
-	if err := cfg.Validate(); err != nil {
-		return Config{}, err
+	if cfg.Version != 1 {
+		return Config{}, fmt.Errorf("unsupported config version %d", cfg.Version)
 	}
 	return cfg, nil
 }

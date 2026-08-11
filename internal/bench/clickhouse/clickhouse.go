@@ -174,23 +174,15 @@ func (engine *Engine) RunClickBench(ctx context.Context, spec ClickBenchSpec) mo
 	if spec.Queries > len(queries) {
 		return fail(benchmark, "clickbench_queries_failed", errors.New("pinned ClickBench query count is incomplete"))
 	}
-	coldAvailable := false
-	if spec.CacheMode == "true-cold" {
-		if _, dropErr := database.ExecContext(ctx, "SYSTEM DROP FILESYSTEM CACHE"); dropErr == nil {
-			coldAvailable = true
-		} else {
-			benchmark.Warnings = append(benchmark.Warnings, "managed ClickHouse did not permit cache eviction; first query run is labeled lukewarm")
-		}
-	}
+	coldAvailable := spec.CacheMode == "true-cold"
 	for queryIndex := 0; queryIndex < spec.Queries; queryIndex++ {
 		for trial := 0; trial < spec.Trials; trial++ {
-			phase := "hot"
-			if trial == 0 {
-				if coldAvailable {
-					phase = "cold"
-				} else {
-					phase = "lukewarm"
-				}
+			phase, evictionFailed := clickBenchPhase(spec.CacheMode, trial, &coldAvailable, func() error {
+				_, dropErr := database.ExecContext(ctx, "SYSTEM DROP FILESYSTEM CACHE")
+				return dropErr
+			})
+			if evictionFailed {
+				benchmark.Warnings = append(benchmark.Warnings, "managed ClickHouse did not permit cache eviction; first runs from this query onward are labeled lukewarm")
 			}
 			started := time.Now()
 			rows, queryErr := database.QueryContext(ctx, queries[queryIndex])
@@ -207,6 +199,20 @@ func (engine *Engine) RunClickBench(ctx context.Context, spec ClickBenchSpec) mo
 		}
 	}
 	return benchmark
+}
+
+func clickBenchPhase(cacheMode string, trial int, coldAvailable *bool, evict func() error) (string, bool) {
+	if trial > 0 {
+		return "hot", false
+	}
+	if cacheMode != "true-cold" || !*coldAvailable {
+		return "lukewarm", false
+	}
+	if err := evict(); err != nil {
+		*coldAvailable = false
+		return "lukewarm", true
+	}
+	return "cold", false
 }
 
 func (engine *Engine) Cleanup(ctx context.Context, runID string, resource manifest.Resource) error {

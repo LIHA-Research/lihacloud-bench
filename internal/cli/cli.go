@@ -156,7 +156,15 @@ func common(args []string, stderr io.Writer) (commonOptions, config.Config, erro
 	if err != nil {
 		return options, config.Config{}, err
 	}
-	if err := config.ApplyEnvironment(&cfg, os.LookupEnv); err != nil {
+	lookupEnvironment := func(name string) (string, bool) {
+		if (name == "LIHACLOUD_BENCH_PROFILE" && options.profileSet) ||
+			(name == "LIHACLOUD_BENCH_OUTPUT" && options.outputSet) ||
+			(name == "LIHACLOUD_BENCH_KEEP_RESOURCES" && options.keepSet) {
+			return "", false
+		}
+		return os.LookupEnv(name)
+	}
+	if err := config.ApplyEnvironment(&cfg, lookupEnvironment); err != nil {
 		return options, config.Config{}, err
 	}
 	if options.profileSet {
