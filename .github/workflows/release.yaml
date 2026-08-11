@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build release archives
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Build archives
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            goos=${target%/*}
+            goarch=${target#*/}
+            archive="lihacloud-bench_${VERSION}_${goos}_${goarch}"
+            mkdir -p "dist/${archive}"
+            binary="lihacloud-bench"
+            if [[ "${goos}" == "windows" ]]; then binary="lihacloud-bench.exe"; fi
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build \
+              -trimpath \
+              -ldflags "-s -w -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Version=${VERSION} -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Commit=${COMMIT} -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Date=${build_date}" \
+              -o "dist/${archive}/${binary}" ./cmd/lihacloud-bench
+            cp LICENSE THIRD_PARTY_NOTICES.md README.md "dist/${archive}/"
+            if [[ "${goos}" == "windows" ]]; then
+              (cd dist && zip -qr "${archive}.zip" "${archive}")
+            else
+              tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
+            fi
+            rm -rf "dist/${archive}"
+          done
+          (cd dist && sha256sum -- *.tar.gz *.zip > checksums.txt)
+
+      - name: Attest release archives
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+        with:
+          subject-path: dist/*
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          generate_release_notes: true
+          files: dist/*
