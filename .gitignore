@@ -27,6 +27,12 @@ go.work.sum
 # env file
 .env
 
+# Project build and benchmark artifacts
+/bin/
+/dist/
+/results/
+*.prof
+
 # Editor/IDE
 # .idea/
 # .vscode/
