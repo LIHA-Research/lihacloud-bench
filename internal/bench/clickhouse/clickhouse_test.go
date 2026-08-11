@@ -88,3 +88,37 @@ func TestDefaultSpec(t *testing.T) {
 		t.Fatalf("standard=%+v", standard)
 	}
 }
+
+func TestClickBenchEvictsBeforeEachColdQuery(t *testing.T) {
+	coldAvailable := true
+	evictions := 0
+	for query := 0; query < 3; query++ {
+		for trial := 0; trial < 3; trial++ {
+			phase, failed := clickBenchPhase("true-cold", trial, &coldAvailable, func() error {
+				evictions++
+				return nil
+			})
+			if failed || (trial == 0 && phase != "cold") || (trial > 0 && phase != "hot") {
+				t.Fatalf("query=%d trial=%d phase=%q failed=%t", query, trial, phase, failed)
+			}
+		}
+	}
+	if evictions != 3 {
+		t.Fatalf("cache evictions=%d, want one before each query", evictions)
+	}
+}
+
+func TestClickBenchFallsBackToLukewarmAfterEvictionFailure(t *testing.T) {
+	coldAvailable := true
+	phase, failed := clickBenchPhase("true-cold", 0, &coldAvailable, func() error { return context.Canceled })
+	if phase != "lukewarm" || !failed || coldAvailable {
+		t.Fatalf("phase=%q failed=%t coldAvailable=%t", phase, failed, coldAvailable)
+	}
+	phase, failed = clickBenchPhase("true-cold", 0, &coldAvailable, func() error {
+		t.Fatal("cache eviction retried after capability failure")
+		return nil
+	})
+	if phase != "lukewarm" || failed {
+		t.Fatalf("phase=%q failed=%t", phase, failed)
+	}
+}

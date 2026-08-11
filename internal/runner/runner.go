@@ -263,6 +263,60 @@ func Execute(ctx context.Context, cfg config.Config, categories []string, runID 
 	var s3Engine *s3bench.Engine
 	var postgresEngine *postgres.Engine
 	var clickHouseEngine *clickhouse.Engine
+	cleanupDone := false
+	cleanup := func() {
+		if cleanupDone {
+			return
+		}
+		cleanupDone = true
+		cleanupContext, cancelCleanup := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancelCleanup()
+		for index := range value.Resources {
+			if cfg.KeepResources {
+				value.Resources[index].CleanupStatus = "kept"
+				continue
+			}
+			var cleanupErr error
+			found := false
+			for _, resource := range manifestValue.Resources {
+				if resource.Kind == value.Resources[index].Kind && resource.Name == value.Resources[index].Name {
+					found = true
+					switch resource.Kind {
+					case "s3_bucket":
+						if s3Engine == nil {
+							cleanupErr = errors.New("S3 client unavailable for cleanup")
+						} else {
+							cleanupErr = s3Engine.Cleanup(cleanupContext, runID, resource)
+						}
+					case "postgres_database":
+						if postgresEngine == nil {
+							cleanupErr = errors.New("PostgreSQL client unavailable for cleanup")
+						} else {
+							cleanupErr = postgresEngine.Cleanup(cleanupContext, runID, resource)
+						}
+					case "clickhouse_database":
+						if clickHouseEngine == nil {
+							cleanupErr = errors.New("ClickHouse client unavailable for cleanup")
+						} else {
+							cleanupErr = clickHouseEngine.Cleanup(cleanupContext, runID, resource)
+						}
+					}
+				}
+			}
+			if !found {
+				cleanupErr = errors.New("cleanup refused: resource is not recorded in the local manifest")
+			}
+			if cleanupErr != nil {
+				value.Resources[index].CleanupStatus, value.Resources[index].Error = "failed", cleanupErr.Error()
+			} else {
+				value.Resources[index].CleanupStatus = "deleted"
+			}
+		}
+		if !cfg.KeepResources && cleanupComplete(value.Resources) {
+			_ = store.Delete(runID)
+		}
+	}
+	defer cleanup()
 	postgresInitialized, clickHouseInitialized := false, false
 	for _, category := range categories {
 		if ctx.Err() != nil {
@@ -369,52 +423,7 @@ func Execute(ctx context.Context, cfg config.Config, categories []string, runID 
 		}
 	}
 
-	cleanupContext, cancelCleanup := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancelCleanup()
-	for index := range value.Resources {
-		if cfg.KeepResources {
-			value.Resources[index].CleanupStatus = "kept"
-			continue
-		}
-		var cleanupErr error
-		found := false
-		for _, resource := range manifestValue.Resources {
-			if resource.Kind == value.Resources[index].Kind && resource.Name == value.Resources[index].Name {
-				found = true
-				switch resource.Kind {
-				case "s3_bucket":
-					if s3Engine == nil {
-						cleanupErr = errors.New("S3 client unavailable for cleanup")
-					} else {
-						cleanupErr = s3Engine.Cleanup(cleanupContext, runID, resource)
-					}
-				case "postgres_database":
-					if postgresEngine == nil {
-						cleanupErr = errors.New("PostgreSQL client unavailable for cleanup")
-					} else {
-						cleanupErr = postgresEngine.Cleanup(cleanupContext, runID, resource)
-					}
-				case "clickhouse_database":
-					if clickHouseEngine == nil {
-						cleanupErr = errors.New("ClickHouse client unavailable for cleanup")
-					} else {
-						cleanupErr = clickHouseEngine.Cleanup(cleanupContext, runID, resource)
-					}
-				}
-			}
-		}
-		if !found {
-			cleanupErr = errors.New("cleanup refused: resource is not recorded in the local manifest")
-		}
-		if cleanupErr != nil {
-			value.Resources[index].CleanupStatus, value.Resources[index].Error = "failed", cleanupErr.Error()
-		} else {
-			value.Resources[index].CleanupStatus = "deleted"
-		}
-	}
-	if !cfg.KeepResources && cleanupComplete(value.Resources) {
-		_ = store.Delete(runID)
-	}
+	cleanup()
 	ended := time.Now().UTC()
 	value.Run.EndedAt = &ended
 	value.Run.Status = status(value, ctx.Err())

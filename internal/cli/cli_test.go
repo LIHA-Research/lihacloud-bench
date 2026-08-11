@@ -50,6 +50,24 @@ func TestPlanQuick(t *testing.T) {
 	}
 }
 
+func TestCLIProfileOverridesInvalidEnvironmentValue(t *testing.T) {
+	t.Setenv("LIHACLOUD_BENCH_PROFILE", "invalid")
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"plan", "--profile", "quick", "--only", "cpu"}, bytes.NewReader(nil), &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), "builtin-sha256") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestCLIKeepResourcesOverridesInvalidEnvironmentValue(t *testing.T) {
+	t.Setenv("LIHACLOUD_BENCH_KEEP_RESOURCES", "not-a-boolean")
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"plan", "--profile", "quick", "--only", "cpu", "--keep-resources"}, bytes.NewReader(nil), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestPeerServeRequiresToken(t *testing.T) {
 	t.Setenv("LIHACLOUD_BENCH_PEER_TOKEN", "")
 	var stdout, stderr bytes.Buffer

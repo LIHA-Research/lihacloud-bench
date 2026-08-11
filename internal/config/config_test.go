@@ -56,6 +56,22 @@ func TestEnvironmentPrecedence(t *testing.T) {
 	}
 }
 
+func TestEnvironmentValidationWaitsForCLIOverrides(t *testing.T) {
+	cfg := Defaults()
+	if err := ApplyEnvironment(&cfg, func(name string) (string, bool) {
+		if name == "LIHACLOUD_BENCH_PROFILE" {
+			return "invalid", true
+		}
+		return "", false
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Profile = "quick"
+	if err := cfg.ValidateResolved(); err != nil {
+		t.Fatalf("valid higher-precedence override was rejected: %v", err)
+	}
+}
+
 func TestLoadAllowsEnvironmentCompletedNetworkConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := strings.Replace(Example, "  iperf:\n    enabled: false", "  iperf:\n    enabled: true", 1)
