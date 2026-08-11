@@ -14,6 +14,9 @@ import (
 	"github.com/LIHA-Research/lihacloud-bench/internal/bench/cpu"
 	"github.com/LIHA-Research/lihacloud-bench/internal/bench/disk"
 	"github.com/LIHA-Research/lihacloud-bench/internal/bench/memory"
+	"github.com/LIHA-Research/lihacloud-bench/internal/bench/network/iperf"
+	"github.com/LIHA-Research/lihacloud-bench/internal/bench/network/ndt7bench"
+	"github.com/LIHA-Research/lihacloud-bench/internal/bench/network/peer"
 	"github.com/LIHA-Research/lihacloud-bench/internal/bench/postgres"
 	"github.com/LIHA-Research/lihacloud-bench/internal/bench/s3bench"
 	"github.com/LIHA-Research/lihacloud-bench/internal/config"
@@ -174,9 +177,55 @@ func Plan(ctx context.Context, cfg config.Config, categories []string, runID str
 			} else {
 				plan.EstimatedDurationSeconds += 1_800
 			}
+		case "network-peer":
+			state, reason := "ready", ""
+			if strings.TrimSpace(cfg.Network.Peer.Target) == "" || strings.TrimSpace(cfg.Network.Peer.CertificateFingerprint) == "" {
+				state, reason = "blocked", "peer target and certificate fingerprint are required"
+			} else if _, present := os.LookupEnv(cfg.Network.Peer.TokenEnv); !present {
+				state, reason = "blocked", cfg.Network.Peer.TokenEnv+" is not set"
+			}
+			plan.Engines = append(plan.Engines, model.PlannedEngine{Category: category, Name: "https-tls-peer", Version: "1", State: state, Reason: reason})
+			plan.EstimatedRequests += map[bool]uint64{true: 5, false: 20}[quick] + 4
+			if quick {
+				plan.EstimatedDurationSeconds += 21
+				plan.EstimatedTransferBytes += 4 * 5 * 125_000_000
+			} else {
+				plan.EstimatedDurationSeconds += 121
+				plan.EstimatedTransferBytes += 4 * 30 * 125_000_000
+			}
+		case "network-iperf":
+			detection := iperf.Detect(ctx)
+			state, reason := "ready", ""
+			if detection.Path == "" {
+				state, reason = "blocked", detection.Engine+" is not installed"
+			} else if strings.TrimSpace(cfg.Network.IPerf.Target) == "" {
+				state, reason = "blocked", "iperf target is required"
+			}
+			plan.Engines = append(plan.Engines, model.PlannedEngine{Category: category, Name: detection.Engine, Version: detection.Version, State: state, Reason: reason})
+			runs := uint64(4)
+			if cfg.Network.IPerf.UDPBitsPerSecond > 0 {
+				runs++
+			}
+			plan.EstimatedRequests += runs
+			if quick {
+				plan.EstimatedDurationSeconds += runs * 5
+				plan.EstimatedTransferBytes += 4 * 5 * 125_000_000
+				plan.EstimatedTransferBytes += cfg.Network.IPerf.UDPBitsPerSecond * 5 / 8
+			} else {
+				plan.EstimatedDurationSeconds += runs * 30
+				plan.EstimatedTransferBytes += 4 * 30 * 125_000_000
+				plan.EstimatedTransferBytes += cfg.Network.IPerf.UDPBitsPerSecond * 30 / 8
+			}
 		case "network-internet":
 			plan.ExternalDataSharing = true
-			plan.Engines = append(plan.Engines, model.PlannedEngine{Category: category, Name: "ndt7", Version: "v0.10.1", State: "ready"})
+			state, reason := "ready", ""
+			if !cfg.Network.Internet.AcceptMLabDataPolicy {
+				state, reason = "blocked", "M-Lab data policy consent is required"
+			}
+			plan.Engines = append(plan.Engines, model.PlannedEngine{Category: category, Name: "ndt7", Version: ndt7bench.Version, State: state, Reason: reason})
+			plan.EstimatedTransferBytes += 2_500_000_000
+			plan.EstimatedRequests += 2
+			plan.EstimatedDurationSeconds += 55
 		default:
 			plan.Engines = append(plan.Engines, model.PlannedEngine{Category: category, Name: category, State: "ready"})
 		}
@@ -299,6 +348,17 @@ func Execute(ctx context.Context, cfg config.Config, categories []string, runID 
 			} else {
 				benchmark = clickHouseEngine.RunClickCannon(ctx, clickhouse.DefaultClickCannonSpec(cfg.Profile, tool.Version))
 			}
+		case "network-peer":
+			token, present := os.LookupEnv(cfg.Network.Peer.TokenEnv)
+			if !present {
+				benchmark = blocked(category, "https-tls-peer", "credential_missing", fmt.Errorf("%s is not set", cfg.Network.Peer.TokenEnv))
+				break
+			}
+			benchmark = peer.Run(ctx, peer.DefaultSpec(cfg.Profile, cfg.Network.Peer.Target, cfg.Network.Peer.CertificateFingerprint, token))
+		case "network-iperf":
+			benchmark = iperf.Run(ctx, iperf.DefaultSpec(cfg.Profile, cfg.Network.IPerf.Target, cfg.Network.IPerf.UDPBitsPerSecond))
+		case "network-internet":
+			benchmark = ndt7bench.Run(ctx, ndt7bench.DefaultSpec(cfg.Profile, tool.Version, cfg.Network.Internet.AcceptMLabDataPolicy))
 		default:
 			benchmark = blocked(category, category, "engine_unavailable", errors.New("benchmark engine is not implemented in this build"))
 		}
