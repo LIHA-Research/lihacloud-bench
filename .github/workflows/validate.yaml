@@ -68,3 +68,39 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: go build ./cmd/lihacloud-bench
+
+  clickcannon-build:
+    name: Build ClickCannon (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Fetch pinned ClickCannon source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/ClickHouse/ClickCannon.git "${RUNNER_TEMP}/clickcannon"
+          git -C "${RUNNER_TEMP}/clickcannon" checkout --detach 14dd50226fe5bed12f2d2720e1837a6b31951d13
+          git -C "${RUNNER_TEMP}/clickcannon" apply "${GITHUB_WORKSPACE}/tools/clickcannon/patches/0001-portable-process-cpu-time.patch"
+
+      - name: Cross-build patched helper
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o "${RUNNER_TEMP}/clickcannon-helper" .
+        working-directory: ${{ runner.temp }}/clickcannon

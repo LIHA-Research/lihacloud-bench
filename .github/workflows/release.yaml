@@ -33,6 +33,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
+          git clone --filter=blob:none https://github.com/ClickHouse/ClickCannon.git "${RUNNER_TEMP}/clickcannon"
+          git -C "${RUNNER_TEMP}/clickcannon" checkout --detach 14dd50226fe5bed12f2d2720e1837a6b31951d13
+          git -C "${RUNNER_TEMP}/clickcannon" apply "${GITHUB_WORKSPACE}/tools/clickcannon/patches/0001-portable-process-cpu-time.patch"
           build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             goos=${target%/*}
@@ -45,6 +48,9 @@ jobs:
               -trimpath \
               -ldflags "-s -w -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Version=${VERSION} -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Commit=${COMMIT} -X github.com/LIHA-Research/lihacloud-bench/internal/buildinfo.Date=${build_date}" \
               -o "dist/${archive}/${binary}" ./cmd/lihacloud-bench
+            helper="clickcannon_${VERSION}_${goos}_${goarch}"
+            if [[ "${goos}" == "windows" ]]; then helper="${helper}.exe"; fi
+            (cd "${RUNNER_TEMP}/clickcannon" && CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -trimpath -ldflags "-s -w" -o "${GITHUB_WORKSPACE}/dist/${helper}" .)
             cp LICENSE THIRD_PARTY_NOTICES.md README.md "dist/${archive}/"
             if [[ "${goos}" == "windows" ]]; then
               (cd dist && zip -qr "${archive}.zip" "${archive}")
@@ -53,7 +59,8 @@ jobs:
             fi
             rm -rf "dist/${archive}"
           done
-          (cd dist && sha256sum -- *.tar.gz *.zip > checksums.txt)
+          cp schemas/config-v1.schema.json schemas/result-v1.schema.json config.example.yaml LICENSE THIRD_PARTY_NOTICES.md dist/
+          (cd dist && sha256sum -- lihacloud-bench_*.tar.gz lihacloud-bench_*.zip clickcannon_* config-v1.schema.json result-v1.schema.json config.example.yaml LICENSE THIRD_PARTY_NOTICES.md > checksums.txt)
 
       - name: Attest release archives
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
