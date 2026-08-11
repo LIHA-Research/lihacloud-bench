@@ -1,0 +1,68 @@
+diff --git a/internal/metrics/worker.go b/internal/metrics/worker.go
+index c005e9b..d3b29f1 100644
+--- a/internal/metrics/worker.go
++++ b/internal/metrics/worker.go
+@@ -8,7 +8,6 @@ import (
+ 	"maps"
+ 	"runtime"
+ 	"sync"
+-	"syscall"
+ 	"time"
+ 
+ 	"github.com/ClickHouse/clickhouse-go/v2"
+@@ -196,12 +195,7 @@ func (w *Worker) collectInternalMetrics() {
+ 	var ms runtime.MemStats
+ 	runtime.ReadMemStats(&ms) // stop-the-world; must not hold w.mu
+ 
+-	var cpuUser, cpuSys uint64
+-	var ru syscall.Rusage
+-	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err == nil {
+-		cpuUser = uint64(ru.Utime.Nano())
+-		cpuSys = uint64(ru.Stime.Nano())
+-	}
++	cpuUser, cpuSys := processCPUTime()
+ 
+ 	w.mu.Lock()
+ 	defer w.mu.Unlock()
+diff --git a/internal/metrics/process_cpu_unix.go b/internal/metrics/process_cpu_unix.go
+new file mode 100644
+index 0000000..a7a0f70
+--- /dev/null
++++ b/internal/metrics/process_cpu_unix.go
+@@ -0,0 +1,13 @@
++//go:build !windows
++
++package metrics
++
++import "syscall"
++
++func processCPUTime() (uint64, uint64) {
++	var usage syscall.Rusage
++	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
++		return 0, 0
++	}
++	return uint64(usage.Utime.Nano()), uint64(usage.Stime.Nano())
++}
+diff --git a/internal/metrics/process_cpu_windows.go b/internal/metrics/process_cpu_windows.go
+new file mode 100644
+index 0000000..cde5ab4
+--- /dev/null
++++ b/internal/metrics/process_cpu_windows.go
+@@ -0,0 +1,17 @@
++//go:build windows
++
++package metrics
++
++import "golang.org/x/sys/windows"
++
++func processCPUTime() (uint64, uint64) {
++	process, err := windows.GetCurrentProcess()
++	if err != nil {
++		return 0, 0
++	}
++	var creation, exit, kernel, user windows.Filetime
++	if err := windows.GetProcessTimes(process, &creation, &exit, &kernel, &user); err != nil {
++		return 0, 0
++	}
++	return uint64(user.Nanoseconds()), uint64(kernel.Nanoseconds())
++}
