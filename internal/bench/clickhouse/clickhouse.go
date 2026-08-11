@@ -36,7 +36,7 @@ const (
 	quickDatasetETag  = `"843c108848a3929260d44588b39ec1b6-6"`
 )
 
-//go:embed assets/clickbench-queries.sql
+//go:embed assets/clickbench-queries.sql assets/clickbench-schema.sql
 var assets embed.FS
 
 type Engine struct {
@@ -144,7 +144,10 @@ func (engine *Engine) RunClickBench(ctx context.Context, spec ClickBenchSpec) mo
 		return fail(benchmark, "clickbench_connection_failed", err)
 	}
 	defer database.Close()
-	createSQL := "CREATE TABLE hits ENGINE=MergeTree ORDER BY (CounterID, EventDate, UserID, EventTime, WatchID) SETTINGS allow_nullable_key=1 AS SELECT * FROM url(" + quoteLiteral(datasetURL) + ", Parquet) LIMIT 0"
+	createSQL, err := clickBenchSchema()
+	if err != nil {
+		return fail(benchmark, "clickbench_schema_failed", err)
+	}
 	if _, err := database.ExecContext(ctx, createSQL); err != nil {
 		return fail(benchmark, "clickbench_create_failed", err)
 	}
@@ -268,6 +271,14 @@ func clickBenchQueries() ([]string, error) {
 		}
 	}
 	return queries, scanner.Err()
+}
+
+func clickBenchSchema() (string, error) {
+	data, err := assets.ReadFile("assets/clickbench-schema.sql")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func cacheDataset(ctx context.Context, datasetURL, filename string, expectedBytes int64, expectedETag string) (string, string, error) {
