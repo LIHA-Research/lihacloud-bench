@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +18,16 @@ func TestPinnedQueries(t *testing.T) {
 	}
 	if len(queries) != 43 {
 		t.Fatalf("pinned query count=%d, want 43", len(queries))
+	}
+}
+
+func TestPinnedSchemaUsesTemporalTypes(t *testing.T) {
+	schema, err := clickBenchSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(schema, "EventTime TIMESTAMP NOT NULL") || !strings.Contains(schema, "ClientEventTime TIMESTAMP NOT NULL") {
+		t.Fatalf("pinned ClickBench schema is missing timestamp columns: %s", schema)
 	}
 }
 
